@@ -1,0 +1,142 @@
+---
+/**
+ * /vehicles/[make]/[model]/ — Model overview page
+ * Lists available years for a specific model with towing data.
+ */
+import Layout from '../../../../layouts/Layout.astro';
+import SiteHeader from '../../../../components/site-header.astro';
+import SiteFooter from '../../../../components/site-footer.astro';
+import Breadcrumbs from '../../../../components/breadcrumbs.astro';
+import VerificationStatus from '../../../../components/verification-status.astro';
+import { getMakeBySlug, getModelBySlug, getModelYears } from '../../../../lib/db.ts';
+
+const { make: makeSlug, model: modelSlug } = Astro.params;
+if (!makeSlug || !modelSlug) return Astro.redirect('/vehicles/', 302);
+
+const { data: make } = await getMakeBySlug(makeSlug);
+if (!make) return new Response(null, { status: 404 });
+
+const { data: model } = await getModelBySlug(make.id, modelSlug);
+if (!model) return new Response(null, { status: 404 });
+
+const { data: years } = await getModelYears(model.id);
+const safeYears = years ?? [];
+
+const pageTitle = `${make.name} ${model.name} Towing Capacity`;
+const pageDesc = `Manufacturer-verified towing capacity specifications for the ${make.name} ${model.name} by model year. Find the exact rating for your configuration.`;
+---
+
+<Layout
+  title={pageTitle}
+  description={pageDesc}
+  canonicalUrl={`/vehicles/${make.slug}/${model.slug}/`}
+  breadcrumbs={[
+    { name: 'Vehicles', url: '/vehicles/' },
+    { name: make.name, url: `/vehicles/${make.slug}/` },
+    { name: model.name, url: `/vehicles/${make.slug}/${model.slug}/` },
+  ]}
+>
+  <SiteHeader currentPath="/vehicles/" />
+
+  <main id="main-content">
+    <div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+      <Breadcrumbs crumbs={[
+        { name: 'Vehicles', href: '/vehicles/' },
+        { name: make.name, href: `/vehicles/${make.slug}/` },
+        { name: model.name },
+      ]} />
+
+      <div class="page-header">
+        <h1 class="page-header__title">{make.name} {model.name} Towing Capacity</h1>
+        <p class="page-header__desc">
+          Select a model year to view configuration-specific towing ratings and specifications.
+        </p>
+      </div>
+
+      {safeYears.length > 0 ? (
+        <div class="years-list" role="list">
+          {safeYears.map((my) => (
+            <a
+              href={`/vehicles/${make.slug}/${model.slug}/${my.year}/`}
+              class="year-row"
+              role="listitem"
+            >
+              <div class="year-row__info">
+                <span class="year-row__year">{my.year}</span>
+                <span class="year-row__label">{make.name} {model.name}</span>
+              </div>
+              <div class="year-row__right">
+                <span class="year-row__cta">View specifications</span>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3.5 8h9M9.5 5l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p style="color: var(--color-pewter);">No published model years found for this vehicle.</p>
+      )}
+    </div>
+  </main>
+
+  <SiteFooter />
+</Layout>
+
+<style>
+  .page-header { margin-bottom: 2rem; }
+  .page-header__title { font-size: clamp(1.75rem, 3vw, 2.25rem); margin-bottom: 0.625rem; }
+  .page-header__desc { color: var(--color-pewter); font-size: var(--text-base); max-width: 56ch; }
+
+  .years-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-cloud-gray);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    max-width: 680px;
+  }
+
+  .year-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    text-decoration: none;
+    color: inherit;
+    border-bottom: 1px solid var(--color-cloud-gray);
+    transition: background-color var(--transition-fast);
+  }
+
+  .year-row:last-child { border-bottom: none; }
+  .year-row:hover { background-color: var(--color-light-ash); }
+
+  .year-row__info { display: flex; align-items: center; gap: 1rem; }
+
+  .year-row__year {
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: var(--color-carbon-dark);
+    font-variant-numeric: tabular-nums;
+    min-width: 3.5rem;
+  }
+
+  .year-row__label { font-size: var(--text-sm); color: var(--color-pewter); }
+
+  .year-row__right {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    color: var(--color-electric-blue);
+  }
+
+  .year-row__cta { font-size: var(--text-sm); font-weight: 500; }
+
+  .year-row svg {
+    color: var(--color-pale-silver);
+    transition: color var(--transition-fast), transform var(--transition-fast);
+  }
+
+  .year-row:hover svg { color: var(--color-electric-blue); transform: translateX(3px); }
+</style>
