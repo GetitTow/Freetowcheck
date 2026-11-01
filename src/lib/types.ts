@@ -183,12 +183,15 @@ export interface VehiclePageData {
   }>;
 }
 
+export type CheckStatus = 'pass' | 'fail' | 'unverified';
+
 export interface TrailerCompatibilityInput {
   vehicleConfigId: string;
   trailerLoadedWeightLbs: number;
   trailerTongueWeightLbs: number | null;
   passengerWeightLbs: number;
   cargoWeightLbs: number;
+  hitchHardwareWeightLbs?: number | null; // Hitch shank, head, and spring bars weight (optional user input)
   customPayloadLbs?: number | null;
   rearAxleRatingLbs?: number | null;
   isTongueWeightEstimated?: boolean;
@@ -219,26 +222,37 @@ export interface CompatibilityResult {
       ratingLbs: number | null;
       loadLbs: number;
       marginLbs: number | null;
-      source: 'manufacturer';
+      status: CheckStatus;
+      detail?: string;
+      source: 'manufacturer' | 'missing';
     };
     tongueWeight: {
       ratingLbs: number | null;
       loadLbs: number | null;
       marginLbs: number | null;
+      status: CheckStatus;
+      detail?: string;
       source: 'user_measured' | 'user_estimated' | 'missing';
     };
     payload: {
       ratingLbs: number | null;
-      usedLbs: number;
+      usedLbs: number | null;
       marginLbs: number | null;
+      status: CheckStatus;
+      detail?: string;
       source: 'user_door_jamb_sticker' | 'manufacturer_brochure_baseline' | 'missing';
       isComplete: boolean;
+      occupantCargoLbs?: number;
+      tongueWeightLbs?: number | null;
+      hitchHardwareLbs?: number;
     };
     gcwr: {
       ratingLbs: number | null;
       combinedWeightLbs: number | null;
       marginLbs: number | null;
-      source: 'manufacturer';
+      status: CheckStatus;
+      detail?: string;
+      source: 'manufacturer' | 'missing';
     };
   };
   missingInputsHelp: Array<{

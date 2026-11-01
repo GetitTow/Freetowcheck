@@ -7,6 +7,15 @@
  * 3. Vehicle Payload Capacity (GVWR margin)
  * 4. Gross Combined Weight Rating (GCWR)
  *
+ * SAFETY INTEGRITY PRINCIPLES:
+ * - Refusal-First: Never return a PASS ('within_all_limits') when any required constraint
+ *   (towing capacity, tongue weight rating, vehicle payload, or GCWR) is unverified or missing.
+ * - Non-Zero Tongue Assumption: Never silently treat an unknown tongue weight as zero.
+ *   If tongue weight is omitted, payload compliance cannot be confirmed.
+ * - Hardware Accounting: Support hitch hardware weight (shank, head, spring bars) in payload
+ *   and gross combined weight calculations without guessing or inventing unverified numbers.
+ * - Clear Constraint States: Each check explicitly reports pass, fail, or unverified.
+ *
  * NOTE ON SAE J2807 STANDARDIZATION:
  * Vehicle manufacturers certify their maximum vehicle ratings under rigorous physical testing
  * defined by the SAE J2807 standard (including thermal cooling, climb performance, launch,
@@ -19,6 +28,7 @@ import type {
   TrailerCompatibilityInput,
   CompatibilityResult,
   CompatibilityResultStatus,
+  CheckStatus,
 } from './types.ts';
 
 export function calculateTrailerCompatibility(
@@ -40,6 +50,11 @@ export function calculateTrailerCompatibility(
   };
 
   // --- Input validation: Guard against negative, zero, non-finite, or absurd values ---
+  const hasValidHitchHardware =
+    input.hitchHardwareWeightLbs === null ||
+    input.hitchHardwareWeightLbs === undefined ||
+    (Number.isFinite(input.hitchHardwareWeightLbs) && input.hitchHardwareWeightLbs >= 0);
+
   if (
     !Number.isFinite(input.trailerLoadedWeightLbs) ||
     input.trailerLoadedWeightLbs <= 0 ||
@@ -47,6 +62,7 @@ export function calculateTrailerCompatibility(
     input.passengerWeightLbs < 0 ||
     !Number.isFinite(input.cargoWeightLbs) ||
     input.cargoWeightLbs < 0 ||
+    !hasValidHitchHardware ||
     (input.trailerTongueWeightLbs !== null &&
       input.trailerTongueWeightLbs !== undefined &&
       (!Number.isFinite(input.trailerTongueWeightLbs) ||
@@ -64,25 +80,36 @@ export function calculateTrailerCompatibility(
           ratingLbs: spec.max_towing_capacity_lbs,
           loadLbs: Number.isFinite(input.trailerLoadedWeightLbs) ? input.trailerLoadedWeightLbs : 0,
           marginLbs: null,
+          status: 'unverified',
+          detail: 'Calculation aborted due to invalid or non-finite weight input values.',
           source: 'manufacturer',
         },
         tongueWeight: {
           ratingLbs: spec.max_tongue_weight_lbs,
           loadLbs: input.trailerTongueWeightLbs ?? null,
           marginLbs: null,
+          status: 'unverified',
+          detail: 'Calculation aborted due to invalid or non-finite weight input values.',
           source: 'missing',
         },
         payload: {
           ratingLbs: spec.max_payload_lbs,
-          usedLbs: 0,
+          usedLbs: null,
           marginLbs: null,
+          status: 'unverified',
+          detail: 'Calculation aborted due to invalid or non-finite weight input values.',
           source: 'missing',
           isComplete: false,
+          occupantCargoLbs: 0,
+          tongueWeightLbs: null,
+          hitchHardwareLbs: 0,
         },
         gcwr: {
           ratingLbs: spec.gcwr_lbs,
           combinedWeightLbs: null,
           marginLbs: null,
+          status: 'unverified',
+          detail: 'Calculation aborted due to invalid or non-finite weight input values.',
           source: 'manufacturer',
         },
       },
@@ -102,27 +129,52 @@ export function calculateTrailerCompatibility(
 
   const violations: { constraint: string; message: string; status: CompatibilityResultStatus }[] = [];
 
+  // Parse hitch hardware weight (default to 0 if not entered by user)
+  const hitchHardwareLbs =
+    typeof input.hitchHardwareWeightLbs === 'number' &&
+    Number.isFinite(input.hitchHardwareWeightLbs) &&
+    input.hitchHardwareWeightLbs > 0
+      ? input.hitchHardwareWeightLbs
+      : 0;
+
+  if (hitchHardwareLbs > 0) {
+    warnings.push(`Hitch hardware weight of ${hitchHardwareLbs.toLocaleString()} lbs is included in payload and gross combined weight calculations.`);
+  }
+
   // --- 1. Towing capacity check (including zero-towing vehicles) ---
+  let towingCheckStatus: CheckStatus = 'unverified';
+  let towingCheckDetail = '';
+
   if (spec.max_towing_capacity_lbs !== null && spec.max_towing_capacity_lbs !== undefined) {
     margins.towingCapacityMarginLbs = spec.max_towing_capacity_lbs - input.trailerLoadedWeightLbs;
     if (spec.max_towing_capacity_lbs === 0) {
+      towingCheckStatus = 'fail';
+      towingCheckDetail = 'Trailer towing is NOT recommended by vehicle manufacturer (rated capacity: 0 lbs).';
       violations.push({
         constraint: 'Manufacturer zero-towing rating (Towing not recommended)',
         status: 'exceeds_towing_capacity',
         message: `Trailer towing is NOT recommended by the vehicle manufacturer for this vehicle configuration (rated capacity: 0 lbs). The vehicle is not engineered or approved for trailer loads.`,
       });
     } else if (margins.towingCapacityMarginLbs < 0) {
+      towingCheckStatus = 'fail';
+      towingCheckDetail = `Trailer loaded weight (${input.trailerLoadedWeightLbs.toLocaleString()} lbs) exceeds maximum towing capacity (${spec.max_towing_capacity_lbs.toLocaleString()} lbs) by ${Math.abs(margins.towingCapacityMarginLbs).toLocaleString()} lbs.`;
       violations.push({
         constraint: 'Maximum towing capacity',
         status: 'exceeds_towing_capacity',
         message: `The trailer's loaded weight of ${input.trailerLoadedWeightLbs.toLocaleString()} lbs exceeds the vehicle's maximum towing capacity of ${spec.max_towing_capacity_lbs.toLocaleString()} lbs by ${Math.abs(margins.towingCapacityMarginLbs).toLocaleString()} lbs.`,
       });
-    } else if (margins.towingCapacityMarginLbs < 500) {
-      warnings.push(
-        'Trailer weight is within 500 lbs of the maximum rated towing capacity. This leaves very little margin for weight distribution errors or added cargo.'
-      );
+    } else {
+      towingCheckStatus = 'pass';
+      towingCheckDetail = `Trailer loaded weight is within maximum towing capacity (${margins.towingCapacityMarginLbs.toLocaleString()} lbs margin).`;
+      if (margins.towingCapacityMarginLbs < 500) {
+        warnings.push(
+          'Trailer weight is within 500 lbs of the maximum rated towing capacity. This leaves very little margin for weight distribution errors or added cargo.'
+        );
+      }
     }
   } else {
+    towingCheckStatus = 'unverified';
+    towingCheckDetail = 'Towing capacity rating is unavailable in the manufacturer specification record.';
     warnings.push('Towing capacity data is unavailable for this configuration. Cannot confirm this setup is within limits.');
     missingInputsHelp.push({
       inputName: 'Manufacturer Towing Capacity',
@@ -136,16 +188,34 @@ export function calculateTrailerCompatibility(
     input.trailerTongueWeightLbs !== null &&
     input.trailerTongueWeightLbs !== undefined;
 
+  let tongueCheckStatus: CheckStatus = 'unverified';
+  let tongueCheckDetail = '';
+
   if (hasTongueWeight) {
     if (spec.max_tongue_weight_lbs !== null && spec.max_tongue_weight_lbs !== undefined) {
       margins.tongueWeightMarginLbs = spec.max_tongue_weight_lbs - input.trailerTongueWeightLbs!;
       if (margins.tongueWeightMarginLbs < 0) {
+        tongueCheckStatus = 'fail';
+        tongueCheckDetail = `Trailer tongue weight (${input.trailerTongueWeightLbs!.toLocaleString()} lbs) exceeds rated hitch receiver limit (${spec.max_tongue_weight_lbs.toLocaleString()} lbs) by ${Math.abs(margins.tongueWeightMarginLbs).toLocaleString()} lbs.`;
         violations.push({
           constraint: 'Maximum hitch receiver tongue weight',
           status: 'exceeds_tongue_weight',
           message: `The tongue weight of ${input.trailerTongueWeightLbs!.toLocaleString()} lbs exceeds the vehicle's rated tongue weight limit of ${spec.max_tongue_weight_lbs.toLocaleString()} lbs by ${Math.abs(margins.tongueWeightMarginLbs).toLocaleString()} lbs.`,
         });
+      } else {
+        tongueCheckStatus = 'pass';
+        tongueCheckDetail = `Trailer tongue weight is within rated hitch receiver limit (${margins.tongueWeightMarginLbs.toLocaleString()} lbs margin).`;
       }
+    } else {
+      // Vehicle receiver rating is missing from specification
+      tongueCheckStatus = 'unverified';
+      tongueCheckDetail = 'Vehicle hitch receiver tongue weight rating is unavailable in the specification record.';
+      warnings.push('Maximum hitch receiver tongue weight rating is unavailable for this vehicle configuration. Cannot confirm receiver load capacity.');
+      missingInputsHelp.push({
+        inputName: 'Vehicle Receiver Tongue Weight Limit',
+        whyNeeded: 'The vehicle hitch receiver maximum tongue load rating is required to confirm the hitch structure is not overloaded.',
+        howToFindOrMeasure: 'Check the safety certification sticker on your vehicle hitch receiver or review the owner manual under Trailer Towing specifications.',
+      });
     }
 
     // Tongue weight ratio check (10% - 15% general conventional-trailer guidance)
@@ -160,6 +230,8 @@ export function calculateTrailerCompatibility(
       );
     }
   } else {
+    tongueCheckStatus = 'unverified';
+    tongueCheckDetail = 'Trailer tongue weight was not provided. Measured tongue weight is required to verify hitch receiver and vehicle payload limits.';
     warnings.push('Tongue weight was not provided. Tongue weight and payload limits are separate critical constraints that must be measured and verified.');
     missingInputsHelp.push({
       inputName: 'Trailer Tongue Weight',
@@ -169,10 +241,7 @@ export function calculateTrailerCompatibility(
   }
 
   // --- 3. Payload check ---
-  const occupantAndCargoWeight = input.passengerWeightLbs + input.cargoWeightLbs;
-  // Note: We do NOT silently assume 0 tongue weight when calculating payload completeness
-  const tongueWeightForPayload = hasTongueWeight ? input.trailerTongueWeightLbs! : 0;
-  const totalPayloadUsed = occupantAndCargoWeight + tongueWeightForPayload;
+  const occupantAndCargoWeight = input.passengerWeightLbs + input.cargoWeightLbs + hitchHardwareLbs;
 
   // Check if user entered their vehicle's exact driver door-jamb sticker payload
   const useCustomPayload =
@@ -192,34 +261,78 @@ export function calculateTrailerCompatibility(
     });
   }
 
-  if (effectivePayloadLbs !== null && effectivePayloadLbs !== undefined) {
-    margins.payloadMarginLbs = effectivePayloadLbs - totalPayloadUsed;
-    if (margins.payloadMarginLbs < 0) {
-      violations.push({
-        constraint: useCustomPayload
-          ? 'Actual door-jamb payload limit'
-          : 'Vehicle payload capacity',
-        status: 'exceeds_payload',
-        message: `The combined weight of passengers (${input.passengerWeightLbs.toLocaleString()} lbs), cargo (${input.cargoWeightLbs.toLocaleString()} lbs), and tongue weight (${tongueWeightForPayload.toLocaleString()} lbs) totals ${totalPayloadUsed.toLocaleString()} lbs, which exceeds the ${useCustomPayload ? 'door-jamb sticker payload limit' : "vehicle's payload rating"} of ${effectivePayloadLbs.toLocaleString()} lbs by ${Math.abs(margins.payloadMarginLbs).toLocaleString()} lbs.`,
-      });
-    } else if (!hasTongueWeight && occupantAndCargoWeight > effectivePayloadLbs) {
-      violations.push({
-        constraint: 'Occupant and cargo payload limit',
-        status: 'exceeds_payload',
-        message: `Passenger and cargo weight alone (${occupantAndCargoWeight.toLocaleString()} lbs) exceeds the vehicle's payload capacity of ${effectivePayloadLbs.toLocaleString()} lbs by ${(occupantAndCargoWeight - effectivePayloadLbs).toLocaleString()} lbs, before even attaching trailer tongue weight.`,
+  let payloadCheckStatus: CheckStatus = 'unverified';
+  let payloadCheckDetail = '';
+  let totalPayloadUsed: number | null = null;
+  let isPayloadComplete = false;
+
+  if (hasTongueWeight) {
+    totalPayloadUsed = occupantAndCargoWeight + input.trailerTongueWeightLbs!;
+    if (effectivePayloadLbs !== null && effectivePayloadLbs !== undefined) {
+      margins.payloadMarginLbs = effectivePayloadLbs - totalPayloadUsed;
+      isPayloadComplete = true;
+
+      if (margins.payloadMarginLbs < 0) {
+        payloadCheckStatus = 'fail';
+        payloadCheckDetail = `Combined vehicle load (${totalPayloadUsed.toLocaleString()} lbs) exceeds payload capacity (${effectivePayloadLbs.toLocaleString()} lbs) by ${Math.abs(margins.payloadMarginLbs).toLocaleString()} lbs.`;
+        violations.push({
+          constraint: useCustomPayload
+            ? 'Actual door-jamb payload limit'
+            : 'Vehicle payload capacity',
+          status: 'exceeds_payload',
+          message: `The combined weight of passengers (${input.passengerWeightLbs.toLocaleString()} lbs), cargo (${input.cargoWeightLbs.toLocaleString()} lbs)${hitchHardwareLbs > 0 ? `, hitch hardware (${hitchHardwareLbs.toLocaleString()} lbs)` : ''}, and tongue weight (${input.trailerTongueWeightLbs!.toLocaleString()} lbs) totals ${totalPayloadUsed.toLocaleString()} lbs, which exceeds the ${useCustomPayload ? 'door-jamb sticker payload limit' : "vehicle's payload rating"} of ${effectivePayloadLbs.toLocaleString()} lbs by ${Math.abs(margins.payloadMarginLbs).toLocaleString()} lbs.`,
+        });
+      } else {
+        payloadCheckStatus = 'pass';
+        payloadCheckDetail = `Combined vehicle load is within payload capacity (${margins.payloadMarginLbs.toLocaleString()} lbs margin).`;
+      }
+    } else {
+      payloadCheckStatus = 'unverified';
+      payloadCheckDetail = 'Vehicle payload rating is unavailable in the specification record.';
+      warnings.push('Payload capacity data is unavailable. Payload is a critical constraint independent of towing capacity.');
+      missingInputsHelp.push({
+        inputName: 'Vehicle Payload Rating',
+        whyNeeded: 'Payload limit governs the maximum weight your vehicle\'s springs, frame, and axles can safely support.',
+        howToFindOrMeasure: 'Look at the Tire and Loading Information placard on your driver-side door jamb.',
       });
     }
   } else {
-    warnings.push('Payload capacity data is unavailable. Payload is a critical constraint independent of towing capacity.');
-    missingInputsHelp.push({
-      inputName: 'Vehicle Payload Rating',
-      whyNeeded: 'Payload limit governs the maximum weight your vehicle\'s springs, frame, and axles can safely support.',
-      howToFindOrMeasure: 'Look at the Tire and Loading Information placard on your driver-side door jamb.',
-    });
+    // Tongue weight is NOT provided. Never silently assume zero tongue weight!
+    isPayloadComplete = false;
+    totalPayloadUsed = occupantAndCargoWeight;
+
+    // Check if passengers and cargo alone exceed the payload limit
+    if (effectivePayloadLbs !== null && effectivePayloadLbs !== undefined && occupantAndCargoWeight > effectivePayloadLbs) {
+      margins.payloadMarginLbs = effectivePayloadLbs - occupantAndCargoWeight;
+      payloadCheckStatus = 'fail';
+      payloadCheckDetail = `Passenger, cargo, and hardware weight alone (${occupantAndCargoWeight.toLocaleString()} lbs) exceeds vehicle payload capacity (${effectivePayloadLbs.toLocaleString()} lbs) before attaching a trailer.`;
+      violations.push({
+        constraint: 'Occupant and cargo payload limit',
+        status: 'exceeds_payload',
+        message: `Passenger and cargo weight alone exceeds the vehicle's payload capacity of ${effectivePayloadLbs.toLocaleString()} lbs by ${(occupantAndCargoWeight - effectivePayloadLbs).toLocaleString()} lbs (${occupantAndCargoWeight.toLocaleString()} lbs load), before even attaching trailer tongue weight.`,
+      });
+    } else {
+      // Passengers and cargo alone do not exceed, but total payload CANNOT be confirmed without tongue weight
+      margins.payloadMarginLbs = null;
+      payloadCheckStatus = 'unverified';
+      payloadCheckDetail = 'Payload compliance cannot be verified without trailer tongue weight. Tongue weight rests directly on the vehicle hitch and consumes payload capacity.';
+      warnings.push('Vehicle payload compliance cannot be verified because trailer tongue weight was not provided. Tongue load directly consumes vehicle payload capacity.');
+      if (effectivePayloadLbs === null || effectivePayloadLbs === undefined) {
+        warnings.push('Payload capacity data is unavailable. Payload is a critical constraint independent of towing capacity.');
+        missingInputsHelp.push({
+          inputName: 'Vehicle Payload Rating',
+          whyNeeded: 'Payload limit governs the maximum weight your vehicle\'s springs, frame, and axles can safely support.',
+          howToFindOrMeasure: 'Look at the Tire and Loading Information placard on your driver-side door jamb.',
+        });
+      }
+    }
   }
 
   // --- 4. GCWR check ---
   let combinedWeight: number | null = null;
+  let gcwrCheckStatus: CheckStatus = 'unverified';
+  let gcwrCheckDetail = '';
+
   if (
     spec.gcwr_lbs !== null &&
     spec.gcwr_lbs !== undefined &&
@@ -230,14 +343,26 @@ export function calculateTrailerCompatibility(
       spec.curb_weight_lbs + occupantAndCargoWeight + input.trailerLoadedWeightLbs;
     margins.gcwrMarginLbs = spec.gcwr_lbs - combinedWeight;
     if (margins.gcwrMarginLbs < 0) {
+      gcwrCheckStatus = 'fail';
+      gcwrCheckDetail = `Combined vehicle and trailer weight (${combinedWeight.toLocaleString()} lbs) exceeds GCWR (${spec.gcwr_lbs.toLocaleString()} lbs) by ${Math.abs(margins.gcwrMarginLbs).toLocaleString()} lbs.`;
       violations.push({
         constraint: 'Gross Combined Weight Rating (GCWR)',
         status: 'exceeds_gcwr',
         message: `The combined weight of ${combinedWeight.toLocaleString()} lbs exceeds the vehicle's GCWR of ${spec.gcwr_lbs.toLocaleString()} lbs by ${Math.abs(margins.gcwrMarginLbs).toLocaleString()} lbs.`,
       });
+    } else {
+      gcwrCheckStatus = 'pass';
+      gcwrCheckDetail = `Combined vehicle and trailer weight is within GCWR (${margins.gcwrMarginLbs.toLocaleString()} lbs margin).`;
     }
-  } else if (spec.gcwr_lbs === null || spec.gcwr_lbs === undefined) {
+  } else {
+    gcwrCheckStatus = 'unverified';
+    gcwrCheckDetail = 'GCWR or base vehicle curb weight is unavailable in the specification record.';
     warnings.push('GCWR (Gross Combined Weight Rating) is unavailable for this configuration.');
+    missingInputsHelp.push({
+      inputName: 'Manufacturer GCWR Rating',
+      whyNeeded: 'Gross Combined Weight Rating governs the maximum combined weight of the fully loaded vehicle and trailer together.',
+      howToFindOrMeasure: 'Consult your vehicle owner manual or manufacturer fleet towing guide under Trailer Towing specifications.',
+    });
   }
 
   // --- Add equipment notes if applicable ---
@@ -257,33 +382,44 @@ export function calculateTrailerCompatibility(
     warnings.push(trailerBrakeRequirement);
   }
 
-  // --- Breakdown generation ---
+  // --- Breakdown generation with explicit status and details ---
   const breakdown: CompatibilityResult['breakdown'] = {
     towing: {
       ratingLbs: spec.max_towing_capacity_lbs,
       loadLbs: input.trailerLoadedWeightLbs,
       marginLbs: margins.towingCapacityMarginLbs,
+      status: towingCheckStatus,
+      detail: towingCheckDetail,
       source: 'manufacturer',
     },
     tongueWeight: {
       ratingLbs: spec.max_tongue_weight_lbs,
       loadLbs: input.trailerTongueWeightLbs ?? null,
       marginLbs: margins.tongueWeightMarginLbs,
+      status: tongueCheckStatus,
+      detail: tongueCheckDetail,
       source: hasTongueWeight ? (input.isTongueWeightEstimated ? 'user_estimated' : 'user_measured') : 'missing',
     },
     payload: {
       ratingLbs: effectivePayloadLbs,
       usedLbs: totalPayloadUsed,
       marginLbs: margins.payloadMarginLbs,
+      status: payloadCheckStatus,
+      detail: payloadCheckDetail,
       source: useCustomPayload
         ? 'user_door_jamb_sticker'
         : (spec.max_payload_lbs !== null ? 'manufacturer_brochure_baseline' : 'missing'),
-      isComplete: hasTongueWeight && effectivePayloadLbs !== null,
+      isComplete: isPayloadComplete,
+      occupantCargoLbs: occupantAndCargoWeight,
+      tongueWeightLbs: input.trailerTongueWeightLbs ?? null,
+      hitchHardwareLbs,
     },
     gcwr: {
       ratingLbs: spec.gcwr_lbs,
       combinedWeightLbs: combinedWeight,
       marginLbs: margins.gcwrMarginLbs,
+      status: gcwrCheckStatus,
+      detail: gcwrCheckDetail,
       source: 'manufacturer',
     },
   };
@@ -293,7 +429,7 @@ export function calculateTrailerCompatibility(
     return {
       status: 'multiple_violations',
       outcomeType: 'exceeds_limits',
-      outcomeHeadline: 'Exceeds a specified limit',
+      outcomeHeadline: 'Exceeds specified limits (Multiple Overloads)',
       controllingConstraint: violations.map((v) => v.constraint).join(', '),
       margins,
       breakdown,
@@ -325,17 +461,22 @@ export function calculateTrailerCompatibility(
     };
   }
 
-  // All evaluated constraints passed without violation, but check for missing data
-  const isEstimate =
+  // --- All evaluated constraints passed without violation, but check for unverified constraints ---
+  // SAFETY LAW: NEVER RETURN AN OVERALL PASS ('within_all_limits') WHEN ANY REQUIRED CONSTRAINT IS UNVERIFIED OR MISSING.
+  const hasUnverifiedCheck =
+    spec.max_towing_capacity_lbs === null ||
+    spec.max_towing_capacity_lbs === undefined ||
+    spec.max_tongue_weight_lbs === null ||
+    spec.max_tongue_weight_lbs === undefined ||
     spec.max_payload_lbs === null ||
     spec.max_payload_lbs === undefined ||
     spec.gcwr_lbs === null ||
     spec.gcwr_lbs === undefined ||
-    spec.max_towing_capacity_lbs === null ||
-    spec.max_towing_capacity_lbs === undefined ||
+    spec.curb_weight_lbs === null ||
+    spec.curb_weight_lbs === undefined ||
     !hasTongueWeight;
 
-  if (isEstimate) {
+  if (hasUnverifiedCheck) {
     warnings.push('Some critical ratings could not be evaluated due to missing data. This result is a partial assessment only and cannot guarantee safe operation.');
   }
 
@@ -356,24 +497,24 @@ export function calculateTrailerCompatibility(
     controllingConstraint = 'GCWR';
   }
 
-  const outcomeType = isEstimate ? 'cannot_determine' : 'within_limits';
-  const outcomeHeadline = isEstimate
+  const outcomeType = hasUnverifiedCheck ? 'cannot_determine' : 'within_limits';
+  const outcomeHeadline = hasUnverifiedCheck
     ? 'Cannot determine — missing critical information'
     : 'Within the supplied limits';
 
   return {
-    status: isEstimate ? 'insufficient_data' : 'within_all_limits',
+    status: hasUnverifiedCheck ? 'insufficient_data' : 'within_all_limits',
     outcomeType,
     outcomeHeadline,
-    controllingConstraint,
+    controllingConstraint: smallestMargin === Infinity ? null : controllingConstraint,
     margins,
     breakdown,
     missingInputsHelp,
-    explanation: isEstimate
-      ? 'Based on available data, the setup does not exceed evaluated limits. However, missing constraint data (such as measured tongue weight or exact door-jamb payload) prevents an unconditional determination.'
-      : `This setup is within all evaluated limits. The controlling constraint is ${controllingConstraint.toLowerCase()}, with a margin of ${(smallestMargin === Infinity ? 0 : smallestMargin).toLocaleString()} lbs remaining.`,
+    explanation: hasUnverifiedCheck
+      ? 'Based on available data, evaluated limits were not exceeded. However, missing constraint data (such as measured tongue weight, hitch receiver limit, or vehicle payload) prevents an unconditional safe determination. All safety limits must be verified before towing.'
+      : `This setup is within all verified manufacturer limits. The controlling constraint is ${controllingConstraint.toLowerCase()}, with a margin of ${(smallestMargin === Infinity ? 0 : smallestMargin).toLocaleString()} lbs remaining.`,
     warnings,
-    isEstimate,
+    isEstimate: hasUnverifiedCheck,
     usedCustomPayload: useCustomPayload,
     effectivePayloadLbs,
     trailerBrakeRequirement,

@@ -34,6 +34,7 @@ const trailerWeight = parseFloat(url.searchParams.get('trailer_weight') ?? '0') 
 const tongueWeight = url.searchParams.get('tongue_weight') ? parseFloat(url.searchParams.get('tongue_weight')!) : null;
 const passengerWeight = parseFloat(url.searchParams.get('passengers') ?? '0') || 0;
 const cargoWeight = parseFloat(url.searchParams.get('cargo') ?? '0') || 0;
+const hitchHardware = url.searchParams.get('hitch_hardware') ? parseFloat(url.searchParams.get('hitch_hardware')!) : null;
 const customPayload = url.searchParams.get('custom_payload') ? parseFloat(url.searchParams.get('custom_payload')!) : null;
 const isTongueWeightEstimated = url.searchParams.get('is_estimated_tongue') === '1' || url.searchParams.get('is_estimated_tongue') === 'true';
 
@@ -119,6 +120,7 @@ if (hasAllInputs) {
             trailerTongueWeightLbs: tongueWeight !== null ? tongueWeight : null,
             passengerWeightLbs: passengerWeight,
             cargoWeightLbs: cargoWeight,
+            hitchHardwareWeightLbs: hitchHardware,
             customPayloadLbs: customPayload,
             isTongueWeightEstimated,
           });
@@ -309,6 +311,24 @@ const resultStatusLabels: Record<string, { label: string; cssClass: string }> = 
             />
           </div>
           <div class="form-field">
+            <label class="form-label" for="m-hitch-hardware">Hitch Hardware (lbs, optional)</label>
+            <input
+              class="form-input"
+              type="number"
+              id="m-hitch-hardware"
+              name="hitch_hardware"
+              min="0"
+              max="999"
+              step="1"
+              value={hitchHardware || ''}
+              placeholder="e.g. 75"
+              aria-describedby="m-hitch-hardware-hint"
+            />
+            <span id="m-hitch-hardware-hint" style="font-size:var(--text-xs);color:var(--color-pewter);margin-top:0.25rem;display:block;">
+              Weight distribution head, shank, and spring bars (typically 60–100 lbs). Consumes payload.
+            </span>
+          </div>
+          <div class="form-field">
             <label class="form-label" for="m-custom-payload">
               Door-Jamb Payload (lbs, optional)
             </label>
@@ -393,13 +413,13 @@ const resultStatusLabels: Record<string, { label: string; cssClass: string }> = 
                 )}
               </div>
 
-              {spec.max_tongue_weight_lbs !== null && (
-                <div class="margin-item">
-                  <span class="margin-item__label">
-                    Hitch Tongue Limit {result.breakdown?.tongueWeight?.source === 'user_estimated' ? '(Estimated Input)' : (result.breakdown?.tongueWeight?.source === 'user_measured' ? '(User Measured)' : '(Not Provided)')}
-                  </span>
-                  <span class="margin-item__limit">{formatLbs(spec.max_tongue_weight_lbs)}</span>
-                  {result.margins.tongueWeightMarginLbs !== null ? (
+              <div class="margin-item">
+                <span class="margin-item__label">
+                  Hitch Tongue Limit {spec.max_tongue_weight_lbs !== null ? (result.breakdown?.tongueWeight?.source === 'user_estimated' ? '(Estimated Input)' : (result.breakdown?.tongueWeight?.source === 'user_measured' ? '(User Measured)' : '(Not Provided)')) : '(Unverified)'}
+                </span>
+                <span class="margin-item__limit">{spec.max_tongue_weight_lbs !== null ? formatLbs(spec.max_tongue_weight_lbs) : 'Not published'}</span>
+                {spec.max_tongue_weight_lbs !== null ? (
+                  result.margins.tongueWeightMarginLbs !== null ? (
                     <span class:list={['margin-item__margin', result.margins.tongueWeightMarginLbs >= 0 ? 'margin-item__margin--ok' : 'margin-item__margin--over']}>
                       {result.margins.tongueWeightMarginLbs >= 0
                         ? `${result.margins.tongueWeightMarginLbs.toLocaleString()} lbs remaining`
@@ -409,9 +429,13 @@ const resultStatusLabels: Record<string, { label: string; cssClass: string }> = 
                     <span class="margin-item__margin" style="color:var(--color-amber-warning);">
                       Missing tongue weight
                     </span>
-                  )}
-                </div>
-              )}
+                  )
+                ) : (
+                  <span class="margin-item__margin" style="color:var(--color-amber-warning);">
+                    Receiver limit unverified
+                  </span>
+                )}
+              </div>
 
               {(spec.max_payload_lbs !== null || result.effectivePayloadLbs !== null) && (
                 <div class="margin-item">
@@ -419,27 +443,35 @@ const resultStatusLabels: Record<string, { label: string; cssClass: string }> = 
                     Payload {result.usedCustomPayload ? '(Door-Jamb Sticker)' : '(Brochure Baseline)'}
                   </span>
                   <span class="margin-item__limit">{formatLbs(result.effectivePayloadLbs ?? spec.max_payload_lbs)}</span>
-                  {result.margins.payloadMarginLbs !== null && (
+                  {result.margins.payloadMarginLbs !== null ? (
                     <span class:list={['margin-item__margin', result.margins.payloadMarginLbs >= 0 ? 'margin-item__margin--ok' : 'margin-item__margin--over']}>
                       {result.margins.payloadMarginLbs >= 0
                         ? `${result.margins.payloadMarginLbs.toLocaleString()} lbs remaining`
                         : `${Math.abs(result.margins.payloadMarginLbs).toLocaleString()} lbs over limit`}
                     </span>
+                  ) : (
+                    <span class="margin-item__margin" style="color:var(--color-amber-warning);">
+                      Unverified (requires tongue weight)
+                    </span>
                   )}
                 </div>
               )}
 
-              {result.margins.gcwrMarginLbs !== null && spec.gcwr_lbs !== null && (
-                <div class="margin-item">
-                  <span class="margin-item__label">GCWR (Manufacturer Rig Limit)</span>
-                  <span class="margin-item__limit">{formatLbs(spec.gcwr_lbs)}</span>
+              <div class="margin-item">
+                <span class="margin-item__label">GCWR (Manufacturer Rig Limit)</span>
+                <span class="margin-item__limit">{spec.gcwr_lbs !== null ? formatLbs(spec.gcwr_lbs) : 'Not published'}</span>
+                {result.margins.gcwrMarginLbs !== null ? (
                   <span class:list={['margin-item__margin', result.margins.gcwrMarginLbs >= 0 ? 'margin-item__margin--ok' : 'margin-item__margin--over']}>
                     {result.margins.gcwrMarginLbs >= 0
                       ? `${result.margins.gcwrMarginLbs.toLocaleString()} lbs remaining`
                       : `${Math.abs(result.margins.gcwrMarginLbs).toLocaleString()} lbs over limit`}
                   </span>
-                </div>
-              )}
+                ) : (
+                  <span class="margin-item__margin" style="color:var(--color-amber-warning);">
+                    GCWR unverified
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
