@@ -142,14 +142,14 @@ test('Database Layer: 2022 Toyota Highlander multi-configuration differentiation
   // Verify Manufacturer Source
   const { data: sources } = await getSourcesForSpec(specTowPrep.id);
   assert.ok(sources && sources.length > 0);
-  assert.equal(sources[0].verification_status, 'manufacturer_verified');
+  assert.equal(sources[0].verification_status, 'partially_verified');
   assert.ok(sources[0].notes.includes('3.5L V6'));
 });
 
 test('Database Layer: Multi-brand expansion verification (Subaru, Honda, Jeep, Nissan)', async () => {
   const { data: makes } = await getMakes();
   assert.ok(makes && makes.length >= 9, 'Catalog must contain at least 9 verified makes');
-  
+
   const expectedMakes = ['toyota', 'ford', 'chevrolet', 'ram', 'gmc', 'subaru', 'honda', 'jeep', 'nissan'];
   for (const slug of expectedMakes) {
     const make = makes.find((m) => m.slug === slug);

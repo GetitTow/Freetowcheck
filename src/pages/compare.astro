@@ -146,7 +146,9 @@ const jsonLd = {
                 return (
                   <td class="feature-value">
                     <div class="big-metric">
-                      <span class="big-metric__num">{tow ? `${tow.toLocaleString()} lbs` : '—'}</span>
+                      <span class="big-metric__num">
+                        {tow === 0 ? 'Not recommended' : tow ? `${tow.toLocaleString()} lbs` : '—'}
+                      </span>
                     </div>
                     {tow && (
                       <div class="metric-bar-bg" aria-hidden="true">
@@ -166,7 +168,11 @@ const jsonLd = {
               </th>
               {activeVehicles.map((v) => (
                 <td class="feature-value font-mono">
-                  {v.spec?.max_tongue_weight_lbs ? `${v.spec.max_tongue_weight_lbs.toLocaleString()} lbs` : '—'}
+                  {v.spec?.max_tongue_weight_lbs === 0
+                    ? 'N/A'
+                    : v.spec?.max_tongue_weight_lbs
+                    ? `${v.spec.max_tongue_weight_lbs.toLocaleString()} lbs`
+                    : '—'}
                 </td>
               ))}
             </tr>

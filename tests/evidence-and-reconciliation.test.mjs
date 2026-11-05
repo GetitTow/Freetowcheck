@@ -154,6 +154,40 @@ test('Evidence Integrity: Every specification is linked to a valid primary manuf
   }
 });
 
+test('Evidence Integrity: Questionable sources (redirects, styling releases, search URLs, portals) are never manufacturer_verified', () => {
+  const sourceMap = new Map(SEED_SOURCES.map((s) => [s.id, s]));
+
+  // 1. Ford Explorer: redirecting media PDF link
+  const explorerSource = sourceMap.get('src-ford-2025-explorer');
+  assert.ok(explorerSource);
+  assert.notEqual(explorerSource.verification_status, 'manufacturer_verified');
+  assert.equal(explorerSource.verification_status, 'source_unavailable');
+
+  // 2. Toyota Highlander: styling package press release
+  const highlanderSource = sourceMap.get('src-toyota-2022-highlander');
+  assert.ok(highlanderSource);
+  assert.notEqual(highlanderSource.verification_status, 'manufacturer_verified');
+  assert.equal(highlanderSource.verification_status, 'partially_verified');
+
+  // 3. Toyota Venza: generic owner resources portal
+  const venzaSource = sourceMap.get('src-toyota-2024-venza');
+  assert.ok(venzaSource);
+  assert.notEqual(venzaSource.verification_status, 'manufacturer_verified');
+  assert.equal(venzaSource.verification_status, 'partially_verified');
+
+  // 4. Subaru Outback: dynamic search query URL
+  const outbackSource = sourceMap.get('src-subaru-2024-outback');
+  assert.ok(outbackSource);
+  assert.notEqual(outbackSource.verification_status, 'manufacturer_verified');
+  assert.equal(outbackSource.verification_status, 'partially_verified');
+
+  // 5. Subaru Ascent: dynamic search query URL
+  const ascentSource = sourceMap.get('src-subaru-2024-ascent');
+  assert.ok(ascentSource);
+  assert.notEqual(ascentSource.verification_status, 'manufacturer_verified');
+  assert.equal(ascentSource.verification_status, 'partially_verified');
+});
+
 // ─── 4. Configuration-specific prerequisites & safety-critical figures ─────────
 test('Safety Verification: Toyota Venza is explicitly marked with 0 lbs towing rating', () => {
   const venzaConfig = SEED_CONFIGS.find(c => c.id === 'cfg-venza-2024-ltd-awd');

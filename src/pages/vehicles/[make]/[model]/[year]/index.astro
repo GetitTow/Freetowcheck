@@ -240,7 +240,9 @@ const jsonLd = {
                               <td class="spec-label">Maximum Towing Capacity</td>
                               <td class="spec-value spec-value--primary">
                                 {cw.spec.max_towing_capacity_lbs !== null
-                                  ? `${formatLbs(cw.spec.max_towing_capacity_lbs)} lbs`
+                                  ? (cw.spec.max_towing_capacity_lbs === 0
+                                      ? 'Not recommended for trailer towing'
+                                      : `${formatLbs(cw.spec.max_towing_capacity_lbs)} lbs`)
                                   : <span class="spec-unavailable">Not available in verified source</span>
                                 }
                               </td>
@@ -249,7 +251,9 @@ const jsonLd = {
                               <td class="spec-label">Maximum Tongue Weight</td>
                               <td class="spec-value">
                                 {cw.spec.max_tongue_weight_lbs !== null
-                                  ? `${formatLbs(cw.spec.max_tongue_weight_lbs)} lbs`
+                                  ? (cw.spec.max_tongue_weight_lbs === 0
+                                      ? 'Not applicable (towing not recommended)'
+                                      : `${formatLbs(cw.spec.max_tongue_weight_lbs)} lbs`)
                                   : <span class="spec-unavailable">Not available in verified source</span>
                                 }
                               </td>

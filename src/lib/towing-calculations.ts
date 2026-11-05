@@ -149,11 +149,11 @@ export function calculateTrailerCompatibility(
     margins.towingCapacityMarginLbs = spec.max_towing_capacity_lbs - input.trailerLoadedWeightLbs;
     if (spec.max_towing_capacity_lbs === 0) {
       towingCheckStatus = 'fail';
-      towingCheckDetail = 'Trailer towing is NOT recommended by vehicle manufacturer (rated capacity: 0 lbs).';
+      towingCheckDetail = 'Trailer towing is NOT recommended by vehicle manufacturer.';
       violations.push({
-        constraint: 'Manufacturer zero-towing rating (Towing not recommended)',
+        constraint: 'Manufacturer policy: Towing not recommended',
         status: 'exceeds_towing_capacity',
-        message: `Trailer towing is NOT recommended by the vehicle manufacturer for this vehicle configuration (rated capacity: 0 lbs). The vehicle is not engineered or approved for trailer loads.`,
+        message: `Trailer towing is NOT recommended by the vehicle manufacturer for this vehicle configuration. The vehicle is not engineered or approved for trailer loads.`,
       });
     } else if (margins.towingCapacityMarginLbs < 0) {
       towingCheckStatus = 'fail';
