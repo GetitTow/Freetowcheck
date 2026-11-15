@@ -151,6 +151,7 @@ const GUIDES_DATABASE: Record<string, GuideData> = {
           '• Total interior & bed weight: 980 lbs',
           '• Remaining payload for tongue weight: 1,600 lbs - 980 lbs = 620 lbs.',
           'With only 620 lbs of remaining payload, the maximum safe trailer this truck can pull at a 12% tongue weight is: 620 / 0.12 = 5,166 lbs—barely half of its advertised 10,000 lbs towing rating!',
+          'This dynamic is even more critical on popular midsize trucks. For example, as detailed in our <a href="/vehicles/toyota/tacoma/" style="color:var(--color-electric-blue);font-weight:500;">Toyota Tacoma Towing Specifications Hub</a>, a V6 or i-FORCE model rated for up to 6,500 lbs of towing typically has a real-world payload between 1,150 and 1,600 lbs. A 650-lb trailer tongue weight immediately claims 40% to 55% of the truck\'s entire payload capacity before accounting for a single passenger or piece of gear.',
         ],
         callout: {
           type: 'warning',
@@ -203,6 +204,7 @@ const GUIDES_DATABASE: Record<string, GuideData> = {
           '2. Gearing & Rear Differential: Shorter axle ratios (such as 3.73 or 4.10) that keep the engine in its optimal torque band and reduce strain on transmission clutches.',
           '3. Electrical & Braking: 7-pin round blade wiring connector, high-output alternator, and factory-integrated trailer brake controller calibrated with the vehicle\'s ABS and stability control system.',
           '4. Structural Enhancements: Frame reinforcement brackets and Class IV or V receiver hitches welded directly to the vehicle chassis.',
+          'A classic midsize truck example is detailed in our <a href="/vehicles/toyota/tacoma/" style="color:var(--color-electric-blue);font-weight:500;">Toyota Tacoma Towing Analysis</a>: 3.5L V6 models without the factory Tow Package are restricted to a 3,500 lbs standard limit. Adding the factory Tow Package—which includes an auxiliary engine oil cooler, power steering cooler, 130A alternator, and frame-mounted Class IV receiver hitch—is mandatory to unlock its full 6,400 to 6,800 lbs towing capability.',
         ],
         callout: {
           type: 'warning',
@@ -311,7 +313,7 @@ const jsonLd = {
               <h2 id={`sec-${section.id}`} class="guide-section__heading">{section.heading}</h2>
 
               {section.content.map((p) => (
-                <p class="guide-section__paragraph">{p}</p>
+                <p class="guide-section__paragraph" set:html={p} />
               ))}
 
               {section.formula && (
